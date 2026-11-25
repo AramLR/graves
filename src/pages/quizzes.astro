@@ -1,0 +1,323 @@
+---
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import SiteLayout from "../layouts/SiteLayout.astro";
+
+type Difficulty = "Fácil" | "Media" | "Difícil";
+type Question = {
+	number: number;
+	prompt: string;
+	options: {
+		label: string;
+		text: string;
+		correct: boolean;
+	}[];
+};
+
+const questionBank = readFileSync(resolve(process.cwd(), "public", "banco.txt"), "utf8");
+const questionPattern =
+	/\[(Fácil|Media|Difícil)\]\s*(\d+)\\?\.\s*([\s\S]*?)(?=\s*\[(?:Fácil|Media|Difícil)\]\s*\d+\\?\.|$)/g;
+const optionPattern = /(?:^|\s)([a-d])\)\s*([\s\S]*?)(?=\s+[a-d]\)\s*|$)/g;
+const expectedLabels = ["a", "b", "c", "d"];
+
+const questions: Question[] = Array.from(questionBank.matchAll(questionPattern), (match) => {
+	const [, difficultyValue, numberValue, content] = match;
+	if (
+		(difficultyValue !== "Fácil" && difficultyValue !== "Media" && difficultyValue !== "Difícil") ||
+		!numberValue ||
+		!content
+	) {
+		throw new Error("El banco contiene una pregunta con formato no válido.");
+	}
+
+	const firstOptionIndex = content.indexOf("a)");
+	if (firstOptionIndex < 0) {
+		throw new Error(`La pregunta ${numberValue} no contiene opciones.`);
+	}
+
+	const prompt = content.slice(0, firstOptionIndex).trim();
+	const optionMatches = Array.from(content.slice(firstOptionIndex).matchAll(optionPattern));
+	if (optionMatches.length !== expectedLabels.length) {
+		throw new Error(`La pregunta ${numberValue} debe tener cuatro opciones.`);
+	}
+
+	const options = optionMatches.map((optionMatch, index) => {
+		const [, label, rawText] = optionMatch;
+		if (!label || label !== expectedLabels[index] || !rawText) {
+			throw new Error(`Las opciones de la pregunta ${numberValue} no están en orden.`);
+		}
+
+		return {
+			label: label.toUpperCase(),
+			text: rawText.replace(/\\?\*\s*$/, "").trim(),
+			correct: /\\?\*\s*$/.test(rawText),
+		};
+	});
+
+	if (!prompt || options.filter((option) => option.correct).length !== 1) {
+		throw new Error(`La pregunta ${numberValue} debe tener enunciado y una única respuesta correcta.`);
+	}
+
+	return { number: Number(numberValue), prompt, options };
+});
+
+if (questions.length !== 50) {
+	throw new Error(`Se esperaban 50 preguntas en public/banco.txt; se encontraron ${questions.length}.`);
+}
+
+questions.forEach((question, index) => {
+	if (question.number !== index + 1) {
+		throw new Error(`Se esperaba la pregunta ${index + 1}, pero se encontró la ${question.number}.`);
+	}
+});
+
+const quizzes = Array.from({ length: 5 }, (_, index) => ({
+	number: index + 1,
+	questions: questions.slice(index * 10, index * 10 + 10),
+}));
+---
+
+<SiteLayout title="Pon a prueba tu aprendizaje">
+	<section aria-labelledby="quiz-page-title" class="space-y-6">
+		<h1 id="quiz-page-title">Pon a prueba tu aprendizaje</h1>
+
+		<div
+			id="quiz-app"
+			class="not-prose space-y-6"
+			data-quizzes={JSON.stringify(quizzes)}
+		>
+			<div class="flex flex-wrap gap-2" role="group" aria-label="Selecciona un quiz">
+				{quizzes.map((quiz) => (
+					<button
+						type="button"
+						class="btn btn-sm btn-outline sm:btn-md"
+						data-quiz-index={quiz.number - 1}
+						aria-pressed="false"
+					>
+						Quiz {quiz.number}
+						<span class="text-xs opacity-70">
+							{quiz.questions[0].number}–{quiz.questions[quiz.questions.length - 1].number}
+						</span>
+					</button>
+				))}
+			</div>
+
+			<section class="card space-y-5 bg-base-200 p-4 sm:p-6" aria-label="Quiz actual">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<h2 id="quiz-label" class="text-lg font-semibold">Quiz 1</h2>
+					<span id="question-number" class="badge badge-lg badge-outline">Pregunta 1 de 10</span>
+				</div>
+
+				<progress
+					id="quiz-progress"
+					class="progress progress-primary w-full"
+					value="0"
+					max="10"
+					aria-label="Progreso del quiz"
+				>
+				</progress>
+
+				<h3 id="question-text" class="text-xl font-semibold" tabindex="-1"></h3>
+				<div id="answer-options" class="grid gap-3" role="group" aria-labelledby="question-text"></div>
+				<p id="answer-feedback" class="font-semibold" role="status" aria-live="polite" tabindex="-1" hidden></p>
+
+				<button id="next-question" type="button" class="btn btn-primary w-fit" hidden>
+					Siguiente pregunta
+				</button>
+
+				<div id="quiz-result" class="rounded-box bg-base-100 p-4" aria-live="polite" hidden>
+					<h3 id="quiz-score" class="text-xl font-bold"></h3>
+					<p id="quiz-message" class="mt-2"></p>
+					<button id="restart-quiz" type="button" class="btn btn-outline mt-4">
+						Repetir quiz
+					</button>
+				</div>
+			</section>
+		</div>
+	</section>
+</SiteLayout>
+
+<script>
+	type Option = {
+		label: string;
+		text: string;
+		correct: boolean;
+	};
+
+	type Question = {
+		number: number;
+		prompt: string;
+		options: Option[];
+	};
+
+	type Quiz = {
+		number: number;
+		questions: Question[];
+	};
+
+	type QuizState = {
+		currentQuestion: number;
+		answers: (boolean | null)[];
+		selectedOptions: (number | null)[];
+	};
+
+	const root = document.querySelector<HTMLElement>("#quiz-app");
+	if (!root) {
+		throw new Error("No se encontró el contenedor de quizzes.");
+	}
+
+	const quizzes: Quiz[] = JSON.parse(root.dataset.quizzes ?? "null");
+	if (quizzes.length !== 5 || quizzes.some((quiz) => quiz.questions.length !== 10)) {
+		throw new Error("La configuración requiere cinco quizzes de diez preguntas.");
+	}
+
+	function requiredElement<T extends HTMLElement>(selector: string): T {
+		const element = root.querySelector<T>(selector);
+		if (!element) {
+			throw new Error(`No se encontró el elemento requerido: ${selector}`);
+		}
+		return element;
+	}
+
+	const quizButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-quiz-index]"));
+	const quizLabel = requiredElement<HTMLHeadingElement>("#quiz-label");
+	const questionNumber = requiredElement<HTMLSpanElement>("#question-number");
+	const progress = requiredElement<HTMLProgressElement>("#quiz-progress");
+	const questionText = requiredElement<HTMLHeadingElement>("#question-text");
+	const answerOptions = requiredElement<HTMLDivElement>("#answer-options");
+	const answerFeedback = requiredElement<HTMLParagraphElement>("#answer-feedback");
+	const nextButton = requiredElement<HTMLButtonElement>("#next-question");
+	const resultPanel = requiredElement<HTMLDivElement>("#quiz-result");
+	const scoreText = requiredElement<HTMLHeadingElement>("#quiz-score");
+	const resultMessage = requiredElement<HTMLParagraphElement>("#quiz-message");
+	const restartButton = requiredElement<HTMLButtonElement>("#restart-quiz");
+
+	const states: QuizState[] = quizzes.map((quiz) => ({
+		currentQuestion: 0,
+		answers: Array(quiz.questions.length).fill(null),
+		selectedOptions: Array(quiz.questions.length).fill(null),
+	}));
+	let activeQuiz = 0;
+
+	function resultMessageFor(score: number): string {
+		if (score >= 9) return "¡Excelente! Tienes un gran dominio del tema.";
+		if (score >= 7) return "¡Buen trabajo! Repasa las preguntas que fallaste para afianzar lo aprendido.";
+		if (score >= 5) return "Vas avanzando. Repasa el material y vuelve a intentarlo.";
+		return "Sigue estudiando; revisar el material te ayudará a mejorar.";
+	}
+
+	function renderQuiz(): void {
+		const quiz = quizzes[activeQuiz];
+		const state = states[activeQuiz];
+		const question = quiz.questions[state.currentQuestion];
+		const answer = state.answers[state.currentQuestion];
+		const selectedOption = state.selectedOptions[state.currentQuestion];
+
+		quizButtons.forEach((button, index) => {
+			button.classList.toggle("btn-primary", index === activeQuiz);
+			button.classList.toggle("btn-outline", index !== activeQuiz);
+			button.setAttribute("aria-pressed", String(index === activeQuiz));
+		});
+
+		quizLabel.textContent = `Quiz ${quiz.number}`;
+		questionNumber.textContent = `Pregunta ${state.currentQuestion + 1} de ${quiz.questions.length}`;
+		questionNumber.className = "badge badge-lg";
+		if (answer === null) {
+			questionNumber.classList.add("badge-outline");
+		} else if (answer) {
+			questionNumber.classList.add("quiz-question-correct");
+		} else {
+			questionNumber.classList.add("quiz-question-incorrect");
+		}
+		questionText.textContent = question.prompt;
+		progress.max = quiz.questions.length;
+		progress.value = state.answers.filter((value) => value !== null).length;
+		answerOptions.replaceChildren();
+
+		question.options.forEach((option, optionIndex) => {
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "btn btn-outline h-auto min-h-12 w-full justify-start whitespace-normal py-3 text-left font-normal";
+			button.textContent = `${option.label}) ${option.text}`;
+			button.disabled = answer !== null;
+			button.setAttribute("aria-pressed", String(selectedOption === optionIndex));
+
+			if (answer !== null) {
+				button.classList.remove("btn-outline");
+				if (option.correct) {
+					button.classList.add("btn-primary");
+				} else if (selectedOption === optionIndex) {
+					button.classList.add("btn-error");
+				}
+			}
+
+			button.addEventListener("click", () => {
+				if (state.answers[state.currentQuestion] !== null) return;
+				state.answers[state.currentQuestion] = option.correct;
+				state.selectedOptions[state.currentQuestion] = optionIndex;
+				renderQuiz();
+				answerFeedback.focus();
+			});
+
+			answerOptions.append(button);
+		});
+
+		answerFeedback.hidden = answer === null;
+		answerFeedback.className = `font-semibold ${answer ? "text-primary" : "text-error"}`;
+		if (answer === null) {
+			answerFeedback.textContent = "";
+		} else if (answer) {
+			answerFeedback.textContent = "¡Correcto!";
+		} else {
+			const correctOption = question.options.find((option) => option.correct);
+			if (!correctOption) {
+				throw new Error(`La pregunta ${question.number} no tiene una respuesta correcta.`);
+			}
+			answerFeedback.textContent = `Incorrecto. La respuesta correcta es: ${correctOption.label}) ${correctOption.text}`;
+		}
+
+		const completed = state.answers.every((value) => value !== null);
+		nextButton.hidden = answer === null || state.currentQuestion === quiz.questions.length - 1;
+		resultPanel.hidden = !completed;
+		if (completed) {
+			const score = state.answers.filter((value) => value === true).length;
+			scoreText.textContent = `Calificación: ${score}/${quiz.questions.length} (${score * 10}%)`;
+			resultMessage.textContent = resultMessageFor(score);
+		}
+	}
+
+	quizButtons.forEach((button) => {
+		button.addEventListener("click", () => {
+			const quizIndex = Number(button.dataset.quizIndex);
+			if (!Number.isInteger(quizIndex) || quizIndex < 0 || quizIndex >= quizzes.length) {
+				throw new Error("El índice de quiz no es válido.");
+			}
+			activeQuiz = quizIndex;
+			renderQuiz();
+		});
+	});
+
+	nextButton.addEventListener("click", () => {
+		const state = states[activeQuiz];
+		if (
+			state.answers[state.currentQuestion] === null ||
+			state.currentQuestion >= quizzes[activeQuiz].questions.length - 1
+		) {
+			return;
+		}
+		state.currentQuestion += 1;
+		renderQuiz();
+		questionText.focus();
+	});
+
+	restartButton.addEventListener("click", () => {
+		const state = states[activeQuiz];
+		state.currentQuestion = 0;
+		state.answers.fill(null);
+		state.selectedOptions.fill(null);
+		renderQuiz();
+		questionText.focus();
+	});
+
+	renderQuiz();
+</script>

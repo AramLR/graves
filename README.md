@@ -41,3 +41,18 @@ All commands are run from the root of the project, from a terminal:
 ## 👀 Want to learn more?
 
 Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+
+## MDX y tema
+
+Las páginas `.mdx` pueden usar el layout del sitio para heredar el tema claro y los estilos tipográficos:
+
+```mdx
+---
+layout: ../layouts/SiteLayout.astro
+title: Mi página
+---
+
+# Contenido
+```
+
+El layout aplica `mdx-content`, que adapta títulos, enlaces, citas, código y tablas a los colores de daisyUI.
