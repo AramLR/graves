@@ -460,30 +460,36 @@ body {
 @media (max-width: 720px) {
 	.site-nav {
 		width: min(100% - 24px, 1120px);
-		min-height: 68px;
-		gap: 8px;
+		min-height: 104px;
+		padding: 10px 0;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 6px;
 	}
 
 	.brand {
 		gap: 6px;
+		width: 100%;
+		justify-content: center;
+		flex-wrap: wrap;
 	}
 
 	.brand-logo {
-		height: 36px;
-	}
-
-	.brand-logo:nth-of-type(2) {
-		display: none;
+		height: 32px;
 	}
 
 	.brand-name {
-		max-width: 130px;
+		flex: 0 0 100%;
+		max-width: none;
 		font-size: 14px;
 		line-height: 1.05;
+		text-align: center;
 	}
 
 	.nav-links {
 		gap: 0;
+		width: 100%;
+		justify-content: center;
 	}
 
 	.nav-link {
