@@ -1,0 +1,131 @@
+---
+import { Image } from "astro:assets";
+import infographic from "../img/info.png";
+import SiteLayout from "../layouts/SiteLayout.astro";
+---
+
+<SiteLayout title="Infografía | Enfermedad de Graves">
+	<section class="infographic-page" aria-labelledby="infographic-title">
+		<header class="page-header">
+			<p class="page-subtitle">
+				Explora la etiología, fisiopatología, manifestaciones clínicas,
+				diagnóstico y tratamiento. Selecciona la imagen para abrirla y
+				ajustar el zoom.
+			</p>
+		</header>
+
+		<section class="infographic-card" aria-label="Infografía">
+			<button
+				class="infographic-trigger"
+				type="button"
+				data-open-viewer
+				aria-haspopup="dialog"
+				aria-label="Abrir infografía ampliada"
+			>
+				<Image
+					src={infographic}
+					alt="Infografía educativa sobre la enfermedad de Graves, desde sus causas y fisiopatología hasta su diagnóstico y tratamiento."
+					class="infographic-image"
+				/>
+				<span class="infographic-trigger-label">
+					Ampliar infografía
+				</span>
+			</button>
+		</section>
+
+		<dialog
+			class="infographic-dialog"
+			id="infographic-viewer"
+			aria-labelledby="viewer-title"
+		>
+			<div class="infographic-viewer-header">
+				<h2 id="viewer-title">
+					Infografía sobre la enfermedad de Graves
+				</h2>
+				<div
+					class="infographic-viewer-controls"
+					role="group"
+					aria-label="Controles de zoom"
+				>
+					<button
+						type="button"
+						data-zoom="out"
+						aria-label="Reducir zoom"
+					>
+						−
+					</button>
+					<span data-zoom-value aria-live="polite">
+						100%
+					</span>
+					<button
+						type="button"
+						data-zoom="in"
+						aria-label="Aumentar zoom"
+					>
+						+
+					</button>
+					<button type="button" data-zoom="reset">
+						Restablecer
+					</button>
+					<button type="button" data-close-viewer>
+						Cerrar
+					</button>
+				</div>
+			</div>
+			<div class="infographic-viewer-viewport">
+				<Image
+					src={infographic}
+					alt="Infografía ampliada sobre la enfermedad de Graves."
+					class="infographic-zoom-image"
+				/>
+			</div>
+		</dialog>
+	</section>
+</SiteLayout>
+
+<script>
+	const dialog = document.querySelector<HTMLDialogElement>(
+		"#infographic-viewer",
+	);
+	const zoomImage = dialog?.querySelector<HTMLImageElement>(
+		".infographic-zoom-image",
+	);
+	const zoomValue = dialog?.querySelector<HTMLElement>("[data-zoom-value]");
+	const openButton =
+		document.querySelector<HTMLButtonElement>("[data-open-viewer]");
+	const closeButton = dialog?.querySelector<HTMLButtonElement>(
+		"[data-close-viewer]",
+	);
+
+	let zoom = 1;
+
+	const updateZoom = (nextZoom: number) => {
+		if (!zoomImage || !zoomValue) return;
+		zoom = Math.max(0.5, Math.min(3, nextZoom));
+		zoomImage.style.width = `${zoom * 100}%`;
+		zoomValue.textContent = `${Math.round(zoom * 100)}%`;
+	};
+
+	openButton?.addEventListener("click", () => {
+		if (!dialog) return;
+		updateZoom(1);
+		dialog.showModal();
+	});
+
+	closeButton?.addEventListener("click", () => dialog?.close());
+
+	dialog
+		?.querySelectorAll<HTMLButtonElement>("[data-zoom]")
+		.forEach((button) => {
+			button.addEventListener("click", () => {
+				const action = button.dataset.zoom;
+				if (action === "in") updateZoom(zoom + 0.25);
+				if (action === "out") updateZoom(zoom - 0.25);
+				if (action === "reset") updateZoom(1);
+			});
+		});
+
+	dialog?.addEventListener("click", (event) => {
+		if (event.target === dialog) dialog.close();
+	});
+</script>
